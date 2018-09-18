@@ -1,0 +1,225 @@
+---
+title: "Predicting Online News Popularity"
+author: by Sumenri Tran
+output: html_notebook
+---
+
+### Project Overview
+This project aims to predict the popularity of online news stories using different classification algorithms. The analysis will explore the process of building and evaluating Naive Bayes, Logistic Regression, Random Forests, Artificial Neural Network and Gradient Boosting models using the H2O package in R. The original dataset and additional details can be found at [UCI Machine Learning Repository](https://archive.ics.uci.edu/ml/datasets/Online+News+Popularity).
+
+### Data Preprocessing
+
+Initiate a connection to an H2O cluster.
+```{r, echo=TRUE, message=FALSE, warning=FALSE, results=FALSE}
+library(h2o)
+h2o.init(nthreads = -1, max_mem_size = "2g")
+h2o.removeAll()
+```
+
+Load the dataset and remove all non-predictive attributes.
+```{r, echo=TRUE, message=FALSE, warning=FALSE, results=FALSE}
+news <- read.csv("OnlineNewsPopularity.csv")
+news <- subset(news, select = -c(url, timedelta))
+```
+
+Convert the target variable "shares" into 2 balanced classes using the median as the threshold.
+```{r, echo=TRUE, message=FALSE, warning=FALSE, results=FALSE}
+news$shares <- ifelse(news$shares >= 1400, 1, 0)
+```
+
+Factorize the dummy variables and apply feature scaling.
+```{r, echo=TRUE, message=FALSE, warning=FALSE, results=FALSE}
+cols <- c(12:17, 30:37, 59)
+news[cols] <- lapply(news[cols], factor)
+news[, !cols] <- as.data.frame(scale(news[, !cols]))
+news <- as.h2o(news)
+```
+The dataset has 59 attributes and 39,797 observations.
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+kable(h2o.describe(news))
+```
+
+75% of the data will be used for training and 25% will be reserved for testing.
+```{r, echo=TRUE, message=FALSE, warning=FALSE, results=FALSE}
+split <- h2o.splitFrame(news, ratios=0.75, seed=123)
+train <- split[[1]]
+test <- split[[2]]
+```
+
+### Model Training
+5-fold cross-validation and grid search will be used for tuning hyperparameters and model selection.
+
+##### Naive Bayes
+We will begin the training stage of our analysis by exploring the Naive Bayes algorithm. This simple and popular algorithm will provide the baseline performance that will be used for model comparison. Since there will be no hyperparameters to tune, we will simply apply k-fold cross-validation.
+```{r, echo=TRUE, message=FALSE, warning=FALSE, results=FALSE}
+# Retrieving cross-validation results
+nb_perf <- h2o.naiveBayes(training_frame = train,
+                          y = "shares", 
+                          model_id = "nb",
+                          nfolds = 5, seed = 123)
+```
+
+```{r}
+kable(nb_perf@model$cross_validation_metrics_summary)
+```
+
+##### Logistic Regression
+The second algorithm we will explore is Logistic Regression. We will apply cartesian grid search to find optimal values for the regularization parameters alpha and lambda.
+```{r, echo=TRUE, message=FALSE, warning=FALSE, results=FALSE}
+# Selecting the hyperparameters
+log_hype <- list(alpha = c(0.005, 0.01, 0.02), 
+                 lambda = c(0, 0.000005, 0.00001))
+
+# Applying Grid Search
+log_grid <- h2o.grid("glm", y = "shares", 
+                     grid_id = "log",
+                     family = "binomial",
+                     hyper_params = log_hype, 
+                     training_frame = train,
+                     nfolds = 5, seed = 123)
+```
+
+```{r}
+# Retrieving cross-validation results
+log_perf <- h2o.getGrid(grid_id = "log", sort_by = "accuracy", decreasing = T)
+print(log_perf)
+
+# Storing the best model
+log_best <- h2o.getModel(log_perf@model_ids[[1]])
+```
+
+##### Random Forests
+Next we will explore Random Forests and apply grid search on the number of trees and maximum tree depth.
+```{r, echo=TRUE, message=FALSE, warning=FALSE, results=FALSE}
+# Selecting the hyperparameters
+rf_hype <- list(ntrees = c(50, 100, 200), 
+                max_depth = c(5, 10, 20))
+
+# Applying Grid Search
+rf_grid <- h2o.grid("randomForest", y = "shares", 
+                    grid_id = "rf",
+                    hyper_params = rf_hype, 
+                    training_frame = train, 
+                    nfolds = 5, seed = 123)
+```
+
+```{r}
+# Retrieving cross-validation results
+rf_perf <- h2o.getGrid(grid_id = "rf", sort_by = "accuracy", decreasing = T)
+print(rf_perf)
+
+# Storing the best model
+rf_best <- h2o.getModel(rf_perf@model_ids[[1]])
+```
+
+##### Artificial Neural Networks
+The next machine learning algorithm we will be using is H2O's deep learning algorithm. The model is based on a multi-layer feedforward artificial neural network that is trained with stochastic gradient descent using back-propagation. We will explore two different activation functions and varying hidden layer sizes.
+```{r, echo=TRUE, message=FALSE, warning=FALSE, results=FALSE}
+# Selecting the hyperparameters
+ann_hype <- list(activation = c("Rectifier", "Maxout"),
+                 hidden=list(c(50,50), c(100,100), c(75,75,75)))
+
+# Applying Grid Search
+ann_grid <- h2o.grid("deeplearning", y = "shares", 
+                     grid_id = "ann",
+                     loss = "CrossEntropy",
+                     epochs = 10,
+                     hyper_params = ann_hype, 
+                     training_frame = train, 
+                     nfolds = 5, seed = 123)
+```
+
+```{r}
+# Retrieving cross-validation results
+ann_perf <- h2o.getGrid(grid_id = "ann", sort_by = "accuracy", decreasing = T)
+print(ann_perf)
+
+# Storing the best model
+ann_best <- h2o.getModel(ann_perf@model_ids[[1]])
+```
+
+##### Gradient Boosted Trees
+The final algorithm we will be testing is the Gradient Boosting Machine algorithm using grid search on the number of trees, maximum tree depth and learning rate.
+```{r, echo=TRUE, message=FALSE, warning=FALSE, results=FALSE}
+# Selecting the hyperparameters
+gbm_hype <- list(ntrees = c(100, 200), 
+                 max_depth = c(10, 20), 
+                 learn_rate = c(0.005, 0.01))
+
+# Applying Grid Search
+gbm_grid <- h2o.grid("gbm", y = "shares", 
+                     grid_id = "gbm",
+                     hyper_params = gbm_hype, 
+                     training_frame = train, 
+                     nfolds = 5, seed = 123)
+```
+
+```{r}
+# Retrieving cross-validation results
+gbm_perf <- h2o.getGrid(grid_id = "gbm", sort_by = "accuracy", decreasing = T)
+print(gbm_perf)
+
+# Storing the best model
+gbm_best <- h2o.getModel(gbm_perf@model_ids[[1]])
+```
+
+### Performance Evaluation
+The AUC and accuracy results will be compared to select the best model to use on the testing set.
+```{r}
+library(knitr)
+# Creating a dataframe to store training results
+results <- as.data.frame(c("Naive Bayes",
+                           "Logistic Regression",
+                           "Random Forests",
+                           "Artificial Neural Network", 
+                           "Gradient Boosted Trees"))
+
+colnames(results)[1] <- "Model"
+results$AUC <- 0
+results$Accuracy <- 0
+
+# Retrieving the results for the best model for each algorithm
+results[1, "AUC"] <- nb_perf@model$cross_validation_metrics_summary[2, 1]
+results[2, "AUC"] <- log_best@model$cross_validation_metrics_summary[2, 1]
+results[3, "AUC"] <- rf_best@model$cross_validation_metrics_summary[2, 1]
+results[4, "AUC"] <- ann_best@model$cross_validation_metrics_summary[2, 1]
+results[5, "AUC"] <- gbm_best@model$cross_validation_metrics_summary[2, 1]
+results[1, "Accuracy"] <- nb_perf@model$cross_validation_metrics_summary[1, 1]
+results[2, "Accuracy"] <- log_best@model$cross_validation_metrics_summary[1, 1]
+results[3, "Accuracy"] <- rf_best@model$cross_validation_metrics_summary[1, 1]
+results[4, "Accuracy"] <- ann_best@model$cross_validation_metrics_summary[1, 1]
+results[5, "Accuracy"] <- gbm_best@model$cross_validation_metrics_summary[1, 1]
+kable(results, format = "markdown")
+```
+The Random Forests model had the greatest performance metrics among the candidate models and will be used for evaluating the test set.
+
+### Final Testing
+We will compare the performance of the final model against the selected baseline model (Naive Bayes).
+```{r, echo=TRUE, message=FALSE, warning=FALSE, results=FALSE}
+base_pred <- h2o.predict(nb_perf, test)
+base_perf <- h2o.performance(nb_perf, test)
+test_pred <- h2o.predict(rf_best, test)
+test_perf <- h2o.performance(rf_best, test)
+```
+**The baseline model achieved an AUC of 64.47% and a max predictive accuracy of 62.09% on the test set.** 
+```{r}
+print(base_perf@metrics$max_criteria_and_metric_scores)
+```
+
+```{r}
+print(base_perf@metrics$AUC)
+```
+```{r}
+plot(base_perf, main="Baseline Model - ROC Curve (AUC = 0.6447122)")
+```
+
+**The final model achieved an AUC of 72.92% and a max predictive accuracy of 67.12% on the test set.** 
+```{r}
+print(test_perf@metrics$max_criteria_and_metric_scores)
+```
+
+```{r}
+test_auc <- h2o.auc(test_perf, valid = T)
+plot(test_perf, main="Final Model - ROC Curve (AUC = 0.729215)")
+```
+**The final model outperformed the baseline with 8.45% higher AUC and 5.03% higher max predictive accuracy.** 
