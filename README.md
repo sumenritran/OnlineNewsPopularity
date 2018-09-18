@@ -13,8 +13,8 @@ The following algorithms will be explored using the H2O package:
 5.	Gradient Boosting
 
 ### Files
-The project contains the following files:
+The project contains the following:
 1.	OnlineNewsPopularity.csv – The dataset
-2.	news_analysis.Rmd – R markdown file
-3.	news_analysis.nb.html – Interactive HTML Presentation
-4.	news_analysis.R – Raw R script
+2.	news_analysis.R – Raw R script
+3.	news_analysis.Rmd – R markdown file
+4.	presentation - Contains interactive HTML Presentation
