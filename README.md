@@ -16,4 +16,5 @@ The following algorithms will be explored using the H2O package:
 The project contains the following files:
 1.	OnlineNewsPopularity.csv – The dataset
 2.	news_analysis.Rmd – R markdown file
-3.	news_analysis.nb.html – Presentation
+3.	news_analysis.nb.html – Interactive HTML Presentation
+4.	news_analysis.R – Raw R script
